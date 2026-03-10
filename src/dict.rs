@@ -3,6 +3,7 @@ mod keys_container;
 use keys_container::KeysContainer;
 
 use std::convert::{TryFrom, TryInto};
+use std::simd::prelude::*;
 
 #[path = "./ahash.rs"]
 pub mod ahash;
@@ -16,7 +17,7 @@ pub mod ahash;
 pub struct Dict<
     V: Copy,
     H: ahash::StrHash = ahash::MojoAHashStrHash,
-    KC: TryInto<usize> + From<u8> + From<u16> + TryFrom<u32> + TryFrom<usize> + Copy = u32,
+    KC: TryInto<usize> + From<u8> + From<u16> + TryFrom<u32> + TryFrom<usize> + Copy + PartialEq = u32,
     KO: TryFrom<usize> + Copy + TryInto<usize> = u32,
     const DESTRUCTIVE: bool = true,
     const CACHING_HASHES: bool = true,
@@ -29,23 +30,19 @@ pub struct Dict<
     count: usize,                  // active (non-deleted) entries
     capacity: usize,               // power of two, >= 8
     hasher: H,
-    pub get_time: f64,
-    pub put_time: f64,
-    pub new_time: f64
 }
 
 #[allow(dead_code)]
 impl<
     V: Copy,
     H: ahash::StrHash + Default,
-    KC: TryInto<usize> + From<u8> + From<u16> + TryFrom<u32> + TryFrom<usize> + Copy,
+    KC: TryInto<usize> + From<u8> + From<u16> + TryFrom<u32> + TryFrom<usize> + Copy + PartialEq,
     KO: TryFrom<usize> + Copy + TryInto<usize>,
     const DESTRUCTIVE: bool,
     const CACHING_HASHES: bool,
 > Dict<V, H, KC, KO, DESTRUCTIVE, CACHING_HASHES>
 {
     pub fn new(capacity: usize) -> Self {
-        let start = std::time::Instant::now();
 
         let capacity = capacity.max(8).next_power_of_two();
 
@@ -82,9 +79,6 @@ impl<
             count: 0,
             capacity,
             hasher: H::default(),
-            get_time: 0.0,
-            put_time: 0.0,
-            new_time: start.elapsed().as_secs_f64(),
         }
     }
 
@@ -113,6 +107,11 @@ impl<
             .expect("4 usize -> KeyEndType conversion failed");
     }
 
+    #[inline(always)]
+    fn probe_simd(&self, _key_hash_truncated: usize) -> Option<usize> {
+        None
+    }
+    
     #[inline]
     fn is_deleted(&self, index: usize) -> bool {
         if !DESTRUCTIVE {
@@ -237,7 +236,6 @@ impl<
     }
 
     pub fn put(&mut self, key: &str, value: V) {
-        let start = std::time::Instant::now();
 
         self.maybe_rehash();
 
@@ -248,7 +246,10 @@ impl<
         let modulo_mask = self.capacity - 1;
         let mut slot = key_hash_truncated & modulo_mask;
 
+        let mut lc: u32 = 0;
+
         loop {
+            lc+=1;
             let key_index = self.load_slot(slot);
             if key_index == 0 {
                 // insert fresh
@@ -261,7 +262,6 @@ impl<
                 self.values.push(value);
                 self.store_slot(slot, self.keys.len()); // 1-based
                 self.count += 1;
-                self.put_time += start.elapsed().as_secs_f64();
                 return;
             }
 
@@ -281,7 +281,6 @@ impl<
                             self.count += 1;
                             self.clear_deleted(idx0);
                         }
-                        self.put_time += start.elapsed().as_secs_f64();
                         return;
                     }
                 }
@@ -294,7 +293,6 @@ impl<
                         self.count += 1;
                         self.clear_deleted(idx0);
                     }
-                    self.put_time += start.elapsed().as_secs_f64();
                     return;
                 }
             }
@@ -303,9 +301,7 @@ impl<
         }
     }
 
-    pub fn get_or(&mut self, key: &str, default: V) -> V {
-        let start = std::time::Instant::now();
-
+    pub fn get_or(&self, key: &str, default: V) -> V {
         let key_index = self.find_key_index(key);
         if key_index == 0 {
             return default;
@@ -315,9 +311,6 @@ impl<
                 return default;
             }
         }
-
-        self.get_time += start.elapsed().as_secs_f64();
-
         self.values[key_index - 1]
     }
 
@@ -386,7 +379,10 @@ impl<
         let modulo_mask = self.capacity - 1;
         let mut slot = key_hash_truncated & modulo_mask;
 
+        let mut lc = 0;
+
         loop {
+            lc+=1;
             let key_index = self.load_slot(slot);
             if key_index == 0 {
                 return 0;
@@ -406,6 +402,7 @@ impl<
             } else {
                 let other_key = self.keys.get(key_index - 1).unwrap();
                 if other_key == key {
+
                     return key_index;
                 }
             }

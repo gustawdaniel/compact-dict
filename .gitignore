@@ -1,2 +1,6 @@
 /target
 .idea
+results
+
+*.log
+mojo-bench

@@ -134,18 +134,16 @@ pub fn ahash(s: &str) -> u64 {
     hasher.finish()
 }
 
-use std::hash::{BuildHasher, Hasher};
-
 pub trait StrHash {
     fn hash(&self, s: &str) -> u64;
 }
 
-impl<H: BuildHasher> StrHash for H {
+impl<H: std::hash::BuildHasher> StrHash for H {
     #[inline]
     fn hash(&self, s: &str) -> u64 {
         let mut state = self.build_hasher();
-        state.write(s.as_bytes());
-        state.finish()
+        std::hash::Hasher::write(&mut state, s.as_bytes());
+        std::hash::Hasher::finish(&state)
     }
 }
 
@@ -156,5 +154,32 @@ impl StrHash for MojoAHashStrHash {
     #[inline]
     fn hash(&self, s: &str) -> u64 {
         ahash(s) // call your custom ahash function
+    }
+}
+
+use rustc_hash::FxHasher;
+use ahash::AHasher;
+
+#[derive(Default)]
+pub struct FxStrHash;
+
+impl StrHash for FxStrHash {
+    #[inline]
+    fn hash(&self, s: &str) -> u64 {
+        let mut hasher = FxHasher::default();
+        std::hash::Hasher::write(&mut hasher, s.as_bytes());
+        std::hash::Hasher::finish(&hasher)
+    }
+}
+
+#[derive(Default)]
+pub struct AHashStrHash;
+
+impl StrHash for AHashStrHash {
+    #[inline]
+    fn hash(&self, s: &str) -> u64 {
+        let mut hasher = AHasher::default();
+        std::hash::Hasher::write(&mut hasher, s.as_bytes());
+        std::hash::Hasher::finish(&hasher)
     }
 }
