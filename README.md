@@ -52,6 +52,7 @@ Because the standard library version uses a cryptographically secure hashing alg
 
 ## Features
 
+- **Zero-Copy Deserialization (`rkyv`):** Supports `rkyv` for blazing fast zero-copy lookups and memory-mapped files. Enable via the `rkyv` feature!
 - **Customizable Layout:** Generic integer types for key-count (`KC`) and key-offset (`KO`) sizes. This flexibility allows you to perfectly balance memory usage (e.g. `u16` vs `u32` indices) depending on your scale requirements.
 - **Cache Friendly:** Linear probing design with optional cached hashes (`CACHING_HASHES`).
 - **SIMD Preparation:** Includes preparations for SIMD-accelerated probing (via `portable_simd`).
@@ -93,6 +94,32 @@ fn main() {
     map.clear();
     assert_eq!(map.len(), 0);
 }
+```
+
+### Zero-Copy Memory Mapping (`rkyv`)
+
+If you enable the `rkyv` feature, you can serialize and memory-map your dictionaries for instant access without any deserialization overhead (saving both time and RAM on massive structures).
+
+```toml
+[dependencies]
+compact-dict = { version = "0.1.1", features = ["rkyv"] }
+```
+
+```rust
+use compact_dict::dict::Dict;
+use rkyv::ser::{serializers::AllocSerializer, Serializer};
+
+// 1. Serialize
+let mut dict = Dict::<u32>::new(16);
+dict.put("zero-copy", 42);
+let mut serializer = AllocSerializer::<256>::default();
+serializer.serialize_value(&dict).unwrap();
+let bytes = serializer.into_serializer().into_inner();
+
+// 2. Instant Zero-Copy Lookup (e.g., mapped directly from a file via `mmap`)
+// By utilizing relative pointer offsets, the `ArchivedDict` requires absolutely no allocations or deserialization CPU cycles to read.
+let archived = unsafe { rkyv::archived_root::<Dict<u32>>(&bytes) };
+assert_eq!(archived.get("zero-copy"), Some(42));
 ```
 
 ## Running Tests
