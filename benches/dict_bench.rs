@@ -4,6 +4,9 @@ use std::collections::HashMap as StdHashMap;
 use hashbrown::HashMap as BrownHashMap;
 use fxhash::FxHashMap;
 
+#[cfg(feature = "rkyv")]
+use rkyv::{ser::serializers::AllocSerializer, ser::Serializer};
+
 fn generate_keys(count: usize) -> Vec<String> {
     let mut keys = Vec::with_capacity(count);
     for i in 0..count {
@@ -81,6 +84,25 @@ fn bench_get(c: &mut Criterion) {
         b.iter(|| {
             for key in &keys {
                 black_box(dict.get_or(key, 0));
+            }
+        });
+    });
+
+    #[cfg(feature = "rkyv")]
+    let archived_bytes = {
+        let mut serializer = AllocSerializer::<1048576>::default();
+        serializer.serialize_value(&dict).unwrap();
+        serializer.into_serializer().into_inner()
+    };
+    
+    #[cfg(feature = "rkyv")]
+    let archived_dict = unsafe { rkyv::archived_root::<Dict<u32>>(&archived_bytes) };
+
+    #[cfg(feature = "rkyv")]
+    group.bench_function("compact_dict_rkyv_zero_copy", |b| {
+        b.iter(|| {
+            for key in &keys {
+                black_box(archived_dict.get_or(key, 0));
             }
         });
     });

@@ -147,6 +147,7 @@ impl<H: std::hash::BuildHasher> StrHash for H {
     }
 }
 
+#[cfg_attr(feature = "rkyv", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 #[derive(Default)]
 pub struct MojoAHashStrHash;
 
@@ -160,6 +161,7 @@ impl StrHash for MojoAHashStrHash {
 use rustc_hash::FxHasher;
 use ahash::AHasher;
 
+#[cfg_attr(feature = "rkyv", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 #[derive(Default)]
 pub struct FxStrHash;
 
@@ -172,6 +174,7 @@ impl StrHash for FxStrHash {
     }
 }
 
+#[cfg_attr(feature = "rkyv", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 #[derive(Default)]
 pub struct AHashStrHash;
 

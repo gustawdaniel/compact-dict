@@ -14,6 +14,7 @@ pub mod ahash;
 /// - H: BuildHasher/StrHash (default aHash RandomState)
 /// - KC: key-count integer (u32 default)
 /// - KO: key-offset integer for KeysContainer (u32 default)
+#[cfg_attr(feature = "rkyv", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 pub struct Dict<
     V: Copy,
     H: ahash::StrHash = ahash::MojoAHashStrHash,
@@ -552,6 +553,109 @@ impl<
                 };
                 print!("{}{}", v, if i + 1 < self.capacity { ", " } else { "\n" });
             }
+        }
+    }
+}
+
+#[cfg(feature = "rkyv")]
+impl<
+    V: Copy + rkyv::Archive,
+    H: ahash::StrHash + rkyv::Archive + Default,
+    KC: TryInto<usize> + From<u8> + From<u16> + TryFrom<u32> + TryFrom<usize> + Copy + PartialEq + rkyv::Archive,
+    KO: TryFrom<usize> + Copy + TryInto<usize> + rkyv::Archive,
+    const DESTRUCTIVE: bool,
+    const CACHING_HASHES: bool,
+> ArchivedDict<V, H, KC, KO, DESTRUCTIVE, CACHING_HASHES>
+where
+    V::Archived: Copy + Into<V>,
+    KC::Archived: Copy,
+    usize: TryFrom<KC::Archived>,
+    KO::Archived: Copy,
+    usize: TryFrom<KO::Archived>,
+{
+    pub fn get_or(&self, key: &str, default: V) -> V {
+        self.get(key).unwrap_or(default)
+    }
+
+    pub fn get(&self, key: &str) -> Option<V> {
+        let key_index = self.find_key_index(key);
+        if key_index == 0 {
+            return None;
+        }
+        if DESTRUCTIVE {
+            if self.is_deleted(key_index - 1) {
+                return None;
+            }
+        }
+        Some(self.values[key_index - 1].into())
+    }
+
+    pub fn contains(&self, key: &str) -> bool {
+        let key_index = self.find_key_index(key);
+        if key_index == 0 {
+            return false;
+        }
+        if DESTRUCTIVE {
+            if self.is_deleted(key_index - 1) {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[inline]
+    fn load_slot(&self, slot: usize) -> usize {
+        usize::try_from(self.slot_to_index[slot]).unwrap_or(0)
+    }
+
+    #[inline]
+    fn is_deleted(&self, index: usize) -> bool {
+        if !DESTRUCTIVE {
+            return false;
+        }
+        if let Some(dm) = self.deleted_mask.as_ref() {
+            let byte = index >> 3;
+            let bit = index & 7;
+            (dm[byte] & (1 << bit)) != 0
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    fn find_key_index(&self, key: &str) -> usize {
+        let key_hash_u64 = H::default().hash(key);
+        let key_hash_truncated = (key_hash_u64 as usize) & ((1 << (core::mem::size_of::<KC>() * 8)) - 1);
+        let capacity: usize = (self.capacity).try_into().unwrap_or(0);
+        let modulo_mask = capacity - 1;
+        let mut slot = key_hash_truncated & modulo_mask;
+
+        loop {
+            let key_index = self.load_slot(slot);
+            if key_index == 0 {
+                return 0;
+            }
+
+            if CACHING_HASHES {
+                if let Some(hashes) = self.key_hashes.as_ref() {
+                    let other_hash: usize = usize::try_from(hashes[slot]).unwrap_or(0);
+                    if other_hash == key_hash_truncated {
+                        if let Some(other_key) = self.keys.get(key_index - 1) {
+                            if other_key == key {
+                                return key_index;
+                            }
+                        }
+                    }
+                }
+            } else {
+                if let Some(other_key) = self.keys.get(key_index - 1) {
+                    if other_key == key {
+                        return key_index;
+                    }
+                }
+            }
+
+            slot = (slot + 1) & modulo_mask;
         }
     }
 }

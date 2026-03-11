@@ -3,6 +3,7 @@ use std::str;
 
 /// Container that stores strings in a contiguous `u8` buffer
 /// and keeps track of the end offsets in a separate array.
+#[cfg_attr(feature = "rkyv", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 pub struct KeysContainer<KeyEndType = u32> {
     keys: Vec<u8>,
     keys_end: Vec<KeyEndType>,
@@ -106,3 +107,27 @@ where
 // &[u8]         81.54128ms
 // safe &str    689.82759ms
 // unsafe &str   86.77004ms
+
+#[cfg(feature = "rkyv")]
+impl<KeyEndType> ArchivedKeysContainer<KeyEndType>
+where
+    KeyEndType: rkyv::Archive,
+    KeyEndType::Archived: Copy,
+    usize: TryFrom<KeyEndType::Archived>,
+{
+    pub fn get(&self, index: usize) -> Option<&str> {
+        let count: usize = (self.count).try_into().unwrap_or(0);
+        if index >= count {
+            return None;
+        }
+        let start: usize = if index == 0 {
+            0
+        } else {
+            usize::try_from(self.keys_end[index - 1]).unwrap_or(0)
+        };
+        let end: usize = usize::try_from(self.keys_end[index]).unwrap_or(0);
+
+        let slice = &self.keys[start..end];
+        Some(unsafe { str::from_utf8_unchecked(slice) })
+    }
+}

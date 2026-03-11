@@ -12,6 +12,7 @@ categories = ["data-structures"]
 wide = "0.7.33"
 rustc-hash = "1.1"
 ahash = "0.8"
+rkyv = { version = "0.7", features = ["default"], optional = true }
 
 [dev-dependencies]
 criterion = "0.5"
@@ -41,3 +42,6 @@ codegen-units = 1
 opt-level = 3
 lto = true
 codegen-units = 1
+
+[features]
+rkyv = ["dep:rkyv"]
