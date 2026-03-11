@@ -2,6 +2,11 @@
 name = "compact-dict"
 version = "0.1.0"
 edition = "2024"
+description = "A highly customizable, open-addressing dictionary in Rust."
+repository = "https://github.com/gustawdaniel/compact-dict"
+license = "MIT"
+keywords = ["hashmap", "dictionary", "simd"]
+categories = ["data-structures"]
 
 [dependencies]
 wide = "0.7.33"
