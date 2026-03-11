@@ -127,6 +127,19 @@ hashbrown: ~74 µs 🚀🔥
 compact_dict: ~143 µs
 ```
 
+**Scaling Benchmark (`workload_bench` by size):**
+
+To demonstrate the exact boundaries of Cache Locality vs SIMD pointer-chasing, we benchmarked the time to initialize, insert, and query varying dataset sizes.
+
+| Dataset Size | Keys/Values Memory | compact-dict (AHash) | hashbrown | Winner |
+| --- | --- | --- | --- | --- |
+| **10k** | ~250 KB | 0.00041 s | 0.00040 s | **Tie** |
+| **100k** | ~2.5 MB | 0.00537 s | 0.01597 s | **compact-dict (3x faster!)** 🚀 |
+| **1M** | ~25 MB | 0.09950 s | 0.17063 s | **compact-dict (~1.7x faster!)** 🚀 |
+| **5M** | ~120 MB | 0.88314 s | 0.78929 s | **hashbrown (~11% faster)** |
+
+**Conclusion**: Continuous memory architecture destroys SwissTables exactly where it should: when the entire working set comfortably fits in the CPU Cache (L2/L3) and pointer chasing is the primary bottleneck. However, once the `Vec<u8>` overflows the cache boundaries, physical contiguous memory forces the CPU to wait for DRAM, allowing the highly-optimized SIMD metadata scanning of `hashbrown` to gracefully take the lead.
+
 *Note: For the most accurate comparisons without allocation overhead skewing metrics, ensure to run tests natively with `LTO` enabled, as seen in the bench profile.*
 
 ## ⚖️ Design Trade-offs & Philosophy
