@@ -129,6 +129,29 @@ compact_dict: ~143 µs
 
 *Note: For the most accurate comparisons without allocation overhead skewing metrics, ensure to run tests natively with `LTO` enabled, as seen in the bench profile.*
 
+## ⚖️ Design Trade-offs & Philosophy
+
+`compact-dict` isn't a drop-in replacement for every use case. It is a specialized tool built with specific constraints to achieve maximum throughput.
+
+### 1. The "No-Deletion" Strategy
+Currently, `compact-dict` is optimized for **Append-Only** or **Static** workloads. 
+* **Why?** Implementing deletions in a linear probing map usually requires either "Tombstones" (which pollute the cache and slow down lookups) or "Backward Shift Deletion" (which is expensive).
+* **Status:** If you need frequent `remove()` operations, stick to `hashbrown`. If you need raw lookup speed for datasets that are built once and read many times, this is for you.
+
+### 2. Linear Probing vs. SwissTables (SIMD)
+While `hashbrown` uses SIMD instructions to scan metadata buckets, `compact-dict` bets on the modern CPU's **L1/L2 cache prefetcher**.
+* **The Bet:** For small to medium-sized maps, the overhead of setting up SIMD registers can be higher than just letting the CPU scan a contiguous block of memory. We prioritize **minimal pointer chasing**.
+
+### 3. Memory Brutalism
+We use `std::ptr` and raw memory layouts to bypass some of the overhead of high-level abstractions.
+* **Safety:** The core logic is wrapped in `unsafe` blocks where performance dictates it. While we strive for correctness, the primary goal is squeezing every nanosecond out of the hardware.
+* **Audit:** We welcome contributors to run `cargo miri test` and help us refine the memory boundaries.
+
+### 4. Load Factor & Clustering
+Because we use **Linear Probing**, this map is sensitive to the load factor. 
+* To maintain peak performance, we recommend keeping the load factor below **0.7**. 
+* Past this point, "Primary Clustering" can occur. We trade this risk for the benefit of extreme cache locality during successful lookups.
+
 ## Performance Analysis & Honest Comparison
 
 `compact-dict` is exceptionally fast for **very specific workloads**, beating out highly optimized SwissTable implementations like `hashbrown` and standard `std::collections::HashMap`. However, it makes severe trade-offs to achieve this speed. Here is an honest guide on when to use what:

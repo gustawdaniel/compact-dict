@@ -24,8 +24,8 @@ jobs:
           VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')
           echo "Current package version from Cargo.toml: $VERSION"
           
-          # Check if this exact version exists on crates.io
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://crates.io/api/v1/crates/compact-dict/$VERSION)
+          # Check if this exact version exists on crates.io. A User-Agent is required by crates.io API to prevent 403 Forbidden.
+          HTTP_STATUS=$(curl -s -A "compact-dict-ci" -o /dev/null -w "%{http_code}" https://crates.io/api/v1/crates/compact-dict/$VERSION)
           
           if [ "$HTTP_STATUS" -eq 200 ]; then
             echo "Version $VERSION is already published to crates.io. Skipping publish step."
