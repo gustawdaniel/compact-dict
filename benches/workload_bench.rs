@@ -9,8 +9,9 @@ use compact_dict::dict::ahash::MojoAHashStrHash;
 use std::collections::HashMap as StdHashMap;
 use hashbrown::HashMap as BrownHashMap;
 use fxhash::FxHashMap;
+use indexmap::IndexMap;
 
-const SIZES: &[usize] = &[10_000, 100_000, 1_000_000, 5_000_000];
+const SIZES: &[usize] = &[1_000, 10_000, 50_000, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000];
 
 fn main() {
     let max_n = *SIZES.iter().max().unwrap();
@@ -130,6 +131,33 @@ fn main() {
             let elapsed = start.elapsed().as_secs_f64();
             println!("hashbrown       : {:.6} s (Sum: {})", elapsed, sum_val);
             write_results("hashbrown", n, elapsed, sum_val);
+        }
+
+        // --- indexmap ---
+        {
+            let mut dic = IndexMap::with_capacity(n);
+            let start = Instant::now();
+            
+            for (i, key) in keys.iter().enumerate() {
+                dic.insert(key.clone(), (i % 7) as i32);
+            }
+
+            for (_, key) in keys.iter().enumerate().step_by(2) {
+                if let Some(val) = dic.get_mut(key) {
+                    *val *= 2;
+                } else {
+                    dic.insert(key.clone(), 0);
+                }
+            }
+
+            let mut sum_val = 0;
+            for key in keys {
+                sum_val += dic.get(key).copied().unwrap_or(-1);
+            }
+            
+            let elapsed = start.elapsed().as_secs_f64();
+            println!("indexmap        : {:.6} s (Sum: {})", elapsed, sum_val);
+            write_results("indexmap", n, elapsed, sum_val);
         }
     }
 }

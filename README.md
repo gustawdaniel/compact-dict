@@ -41,11 +41,14 @@ quadrantChart
     quadrant-2 Pure Speed Complex SIMD
     quadrant-3 Small Footprint
     quadrant-4 General Purpose
-    "std::collections::HashMap": [0.4, 0.4]
-    "hashbrown (SwissTable)": [0.9, 0.3]
+    "std::HashMap (SipHash)": [0.35, 0.4]
+    "hashbrown (AHash)": [0.65, 0.35]
     "Separate Chaining Maps": [0.2, 0.8]
     "compact-dict": [0.85, 0.9]
 ```
+
+*Wait, `std::collections::HashMap` is literally `hashbrown` under the hood! Why does the pure `hashbrown` crate perform better in benchmarks?*
+Because the standard library version uses a cryptographically secure hashing algorithm (`SipHash` / `RandomState`) by default to prevent DOS attacks. The raw `hashbrown` crate (and our benchmarks) typically defaults to `AHash` or allows swapping to faster, non-cryptographic hashers. Architecturally, they are the same SwissTable.
 
 ## Features
 
@@ -131,14 +134,18 @@ compact_dict: ~143 µs
 
 To demonstrate the exact boundaries of Cache Locality vs SIMD pointer-chasing, we benchmarked the time to initialize, insert, and query varying dataset sizes.
 
-| Dataset Size | Keys/Values Memory | compact-dict (AHash) | hashbrown | Winner |
-| --- | --- | --- | --- | --- |
-| **10k** | ~250 KB | 0.00041 s | 0.00040 s | **Tie** |
-| **100k** | ~2.5 MB | 0.00537 s | 0.01597 s | **compact-dict (3x faster!)** 🚀 |
-| **1M** | ~25 MB | 0.09950 s | 0.17063 s | **compact-dict (~1.7x faster!)** 🚀 |
-| **5M** | ~120 MB | 0.88314 s | 0.78929 s | **hashbrown (~11% faster)** |
+| Dataset Size | Keys/Values Memory | compact-dict (AHash) | hashbrown | IndexMap | Winner |
+| --- | --- | --- | --- | --- | --- |
+| **1k** | ~25 KB | 0.00004 s | 0.00003 s | 0.00003 s | **Tie** |
+| **10k** | ~250 KB | 0.00042 s | 0.00040 s | 0.00040 s | **Tie** |
+| **50k** | ~1.25 MB | 0.00276 s | 0.00228 s | 0.00304 s | **hashbrown (~18% faster)** |
+| **100k** | ~2.5 MB | 0.00454 s | 0.00480 s | 0.00588 s | **compact-dict (~5% faster)** |
+| **500k** | ~12.5 MB | 0.03380 s | 0.11273 s | 0.06127 s | **compact-dict (3.3x faster!)** 🚀 |
+| **1M** | ~25 MB | 0.10286 s | 0.18673 s | 0.14350 s | **compact-dict (1.8x faster!)** 🚀 |
+| **5M** | ~120 MB | 0.91444 s | 1.12205 s | 1.36139 s | **compact-dict (~22% faster)** 🚀 |
+| **10M** | ~250 MB | 2.05771 s | 2.18067 s | 3.30514 s | **compact-dict (~6% faster)** 🚀 |
 
-**Conclusion**: Continuous memory architecture destroys SwissTables exactly where it should: when the entire working set comfortably fits in the CPU Cache (L2/L3) and pointer chasing is the primary bottleneck. However, once the `Vec<u8>` overflows the cache boundaries, physical contiguous memory forces the CPU to wait for DRAM, allowing the highly-optimized SIMD metadata scanning of `hashbrown` to gracefully take the lead.
+**Conclusion**: Continuous memory architecture behaves exactly as expected: when the entire working set comfortably fits in the CPU Cache (L2/L3), pointer chasing is the primary bottleneck and our contiguous array layout crushes the competition (up to 3x faster at the 500k boundary). Interestingly, `compact-dict` significantly pulls ahead of `IndexMap` across the board at scale, proving that simply combining a continuous array with a hash table isn't enough - you need brutally flat data and avoiding metadata bloat. At extreme sizes (>10M / 250MB), memory bandwidth saturates and native `hashbrown` begins catching up as cache locality benefits flatten out.
 
 *Note: For the most accurate comparisons without allocation overhead skewing metrics, ensure to run tests natively with `LTO` enabled, as seen in the bench profile.*
 
