@@ -269,7 +269,10 @@ impl<
             (key_hash_u64 as usize) & ((1 << (std::mem::size_of::<KC>() * 8)) - 1);
 
         let modulo_mask = self.capacity - 1;
-        let mut slot = key_hash_truncated & modulo_mask;
+        let initial_slot = key_hash_truncated & modulo_mask;
+        let mut slot = initial_slot;
+        let mut probe_step = 1;
+        let mut is_pos = true;
 
         loop {
             let key_index = self.load_slot(slot);
@@ -319,7 +322,14 @@ impl<
                 }
             }
 
-            slot = (slot + 1) & modulo_mask;
+            if is_pos {
+                slot = (initial_slot + probe_step) & modulo_mask;
+                is_pos = false;
+            } else {
+                slot = (initial_slot + self.capacity - probe_step) & modulo_mask;
+                probe_step += 1;
+                is_pos = true;
+            }
         }
     }
 
@@ -396,102 +406,16 @@ impl<
         let key_hash_u64 = self.hasher.hash(key);
         let key_hash_truncated = (key_hash_u64 as usize) & ((1 << (std::mem::size_of::<KC>() * 8)) - 1);
         let modulo_mask = self.capacity - 1;
-        let mut slot = key_hash_truncated & modulo_mask;
+        let initial_slot = key_hash_truncated & modulo_mask;
+        let mut slot = initial_slot;
+        
+        let mut probe_step = 1;
+        let mut is_pos = true;
 
-        // Fast SIMD path for cached u32 hashes
-        if CACHING_HASHES && std::mem::size_of::<KC>() == 4 {
-            let target: Simd<u32, 16> = Simd::splat(key_hash_truncated as u32);
-            let empty_target: Simd<u32, 16> = Simd::splat(0);
-            let hashes = self.key_hashes.as_ref().unwrap();
-            
-            let mut current_slot = slot;
-            loop {
-                // Read from cache to check for 0 quickly
-                let key_index = self.load_slot(current_slot);
-                if key_index == 0 {
-                    return 0; // Empty slot found, key doesn't exist
-                }
-
-                if current_slot + 16 <= self.capacity {
-                    let chunk = &hashes[current_slot..current_slot+16];
-                    let ptr: *const u32 = chunk.as_ptr() as *const u32;
-                    let loaded: Simd<u32, 16> = unsafe { Simd::from_slice(std::slice::from_raw_parts(ptr, 16)) };
-                    
-                    let cmp = loaded.simd_eq(target);
-                    let empty_cmp = loaded.simd_eq(empty_target);
-                    
-                    let match_mask = cmp.to_bitmask();
-                    let empty_mask = empty_cmp.to_bitmask();
-
-                    // If we have matches, we must check them all in order
-                    if match_mask != 0 {
-                        let mut remaining_matches = match_mask;
-                        while remaining_matches != 0 {
-                            let match_idx = remaining_matches.trailing_zeros();
-                            
-                            // If we see an empty slot BEFORE this match, the chain is broken
-                            if empty_mask != 0 && empty_mask.trailing_zeros() < match_idx {
-                                // Double check if it's truly an empty slot (index == 0)
-                                let empty_idx = empty_mask.trailing_zeros();
-                                if self.load_slot(current_slot + empty_idx as usize) == 0 {
-                                    return 0;
-                                }
-                            }
-
-                            let match_slot = current_slot + match_idx as usize;
-                            let candidate_index = self.load_slot(match_slot);
-                            if candidate_index != 0 {
-                                let other_key = self.keys.get(candidate_index - 1).unwrap();
-                                if other_key == key {
-                                    return candidate_index;
-                                }
-                            }
-                            
-                            // Clear this bit and continue checking other matches
-                            remaining_matches &= !(1 << match_idx);
-                        }
-                    }
-
-                    // No matches in this 16-lane, or false positives. Can we skip ahead?
-                    if empty_mask != 0 {
-                        // Yes! There is an empty slot in this block.
-                        // We must process up to that empty slot to ensure correctness.
-                        let empty_idx = empty_mask.trailing_zeros();
-                        if self.load_slot(current_slot + empty_idx as usize) == 0 {
-                            // We hit a true empty slot, end of chain
-                            return 0;
-                        }
-                        // It was an empty hash (0) but index != 0 (maybe deleted but rehashing?)
-                        // We just fall through to the scalar advance
-                    } else {
-                        // Block is completely full with no spaces, we can advance by 16 safely!
-                        current_slot = (current_slot + 16) & modulo_mask;
-                        continue;
-                    }
-                }
-
-                // Standard fallback linear probe check for edges or when SIMD cannot jump
-                let other_hash: usize = hashes[current_slot]
-                    .try_into()
-                    .ok()
-                    .expect("KC -> usize conversion failed");
-                    
-                if other_hash == key_hash_truncated {
-                    let other_key = self.keys.get(key_index - 1).unwrap();
-                    if other_key == key {
-                        return key_index;
-                    }
-                }
-
-                current_slot = (current_slot + 1) & modulo_mask;
-            }
-        }
-
-        // --- Original scalar fallback path ---
         loop {
             let key_index = self.load_slot(slot);
             if key_index == 0 {
-                return 0;
+                return 0; // Empty slot found, key doesn't exist
             }
 
             if CACHING_HASHES {
@@ -512,7 +436,14 @@ impl<
                 }
             }
 
-            slot = (slot + 1) & modulo_mask;
+            if is_pos {
+                slot = (initial_slot + probe_step) & modulo_mask;
+                is_pos = false;
+            } else {
+                slot = (initial_slot + self.capacity - probe_step) & modulo_mask;
+                probe_step += 1;
+                is_pos = true;
+            }
         }
     }
 
