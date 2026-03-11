@@ -2,6 +2,51 @@
 
 `compact-dict` is a highly customizable, open-addressing dictionary in Rust. It features linear probing and continuous memory layout for string keys, heavily inspired by Mojo's Dict.
 
+## Why `compact-dict`?
+
+Modern CPUs hate pointer chasing. While traditional maps often fragment data, `compact-dict` ensures your data stays together.
+
+### Memory Layout vs Traditional Maps
+
+```mermaid
+graph TD
+    subgraph Separate_Chaining [Traditional Map: Separate Chaining]
+        NodeA[Bucket 1] -->|Pointer| NodeB[Heap Node]
+        NodeB -->|Pointer| NodeC[Heap Node]
+        style NodeB fill:#f96,stroke:#333
+        style NodeC fill:#f96,stroke:#333
+    end
+
+    subgraph Compact_Dict [compact-dict: Continuous Layout]
+        direction LR
+        Slot1[K1:V1] --- Slot2[K2:V2] --- Slot3[K3:V3] --- Slot4[K4:V4]
+        style Slot1 fill:#4CAF50,stroke:#333
+        style Slot2 fill:#4CAF50,stroke:#333
+        style Slot3 fill:#4CAF50,stroke:#333
+        style Slot4 fill:#4CAF50,stroke:#333
+    end
+
+    Note1[Pointer Chasing = Cache Misses] -.-> Separate_Chaining
+    Note2[Strict Contiguity = Prefetcher Heaven] -.-> Compact_Dict
+```
+
+### Where we fit in
+
+```mermaid
+quadrantChart
+    title Hash Map Ecosystem Positioning
+    x-axis Low Memory Overhead --> High Performance
+    y-axis Complex Architecture --> Simple & Local
+    quadrant-1 High Speed & Cache Locality
+    quadrant-2 Pure Speed Complex SIMD
+    quadrant-3 Small Footprint
+    quadrant-4 General Purpose
+    "std::collections::HashMap": [0.4, 0.4]
+    "hashbrown (SwissTable)": [0.9, 0.3]
+    "Separate Chaining Maps": [0.2, 0.8]
+    "compact-dict": [0.85, 0.9]
+```
+
 ## Features
 
 - **Customizable Layout:** Generic integer types for key-count (`KC`) and key-offset (`KO`) sizes. This flexibility allows you to perfectly balance memory usage (e.g. `u16` vs `u32` indices) depending on your scale requirements.
