@@ -1,6 +1,6 @@
 # compact-dict
 
-`compact-dict` is an experimental, highly customizable, open-addressing dictionary in Rust. It features linear probing and continuous memory layout for string keys, heavily inspired by Mojo's Dict.
+`compact-dict` is a highly customizable, open-addressing dictionary in Rust. It features linear probing and continuous memory layout for string keys, heavily inspired by Mojo's Dict.
 
 ## Features
 
@@ -57,17 +57,29 @@ cargo +nightly test
 
 Benchmarking:
 
+There are two benchmarks in the repository: `workload_bench` (simulating real-world string ingestion and mutations) and `dict_bench` (using Criterion for pure primitive operations like `get`).
+
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo +nightly bench --bench workload_bench
 ```
 
-Results:
+**Workload Benchmark Results (`workload_bench` - Insertions + Mutations):**
+```
+compact_dict_fx: 0.152 s 🚀🔥
+fxhash: 0.182 s
+std_hashmap: 0.267 s
+hashbrown: 0.272 s
+```
+
+**Pure Lookup Results (`dict_bench` - 10k random `get` operations):**
+
+```bash
+RUSTFLAGS="-C target-cpu=native" cargo +nightly bench --bench dict_bench
+```
 
 ```
-compact_dict_fx: 0.166 s 🚀🔥
-hashbrown: 0.185 s
-fxhash: 0.185 s
-std_hashmap: 0.251 s
+hashbrown: ~74 µs 🚀🔥
+compact_dict: ~143 µs
 ```
 
 *Note: For the most accurate comparisons without allocation overhead skewing metrics, ensure to run tests natively with `LTO` enabled, as seen in the bench profile.*
@@ -85,3 +97,4 @@ std_hashmap: 0.251 s
 1. **Continuous Server Deletions**: Deleting elements in `compact-dict` only marks a bit field as deleted (tombstoning). It **never** compacts or frees the physical string memory from the keys buffer. If you implement a long-running web server that constantly adds and removes strings, `compact-dict` will act as a memory leak until the entire dictionary is dropped. 
 2. **Generic Keys**: The dictionary is hardcoded around `KeysContainer` offsets, heavily specializing in `&str`. You cannot drop in `HashMap<Uuid, usize>` or custom structs as keys easily. Standard map implementations are completely generic.
 3. **Ecosystem Stability**: It relies on Nightly Rust explicitly for `std::simd`. `hashbrown` has zero unstable dependencies and runs practically everywhere perfectly optimized for all target architectures.
+4. **Pure Lookup Speed**: In pure read-heavy workloads (e.g., retrieving 10,000 strings without inserting or scanning new ones), highly optimized SwissTables like `hashbrown` still outperform `compact-dict`. As seen in the pure-`get` microbenchmark, `hashbrown` can be about **2x faster** than `compact-dict` for isolated random-access lookups. The performance strength of `compact-dict` revolves around the combined speed of contiguous string ingestion, sequential iteration cache-locality, and mutation operations.

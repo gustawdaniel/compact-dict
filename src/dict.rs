@@ -108,7 +108,7 @@ impl<
     }
 
     #[inline(always)]
-    fn probe_simd_32(&self, key_hash_truncated: usize, slot: usize, modulo_mask: usize) -> Option<usize> {
+    fn probe_simd_32(&self, key_hash_truncated: usize, slot: usize, _modulo_mask: usize) -> Option<usize> {
         if !CACHING_HASHES || std::mem::size_of::<KC>() != 4 {
             return None; // Only support u32 hashes for now
         }
@@ -271,10 +271,7 @@ impl<
         let modulo_mask = self.capacity - 1;
         let mut slot = key_hash_truncated & modulo_mask;
 
-        let mut lc: u32 = 0;
-
         loop {
-            lc+=1;
             let key_index = self.load_slot(slot);
             if key_index == 0 {
                 // insert fresh
