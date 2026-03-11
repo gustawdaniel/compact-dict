@@ -261,65 +261,66 @@ impl<
     }
 
     pub fn put(&mut self, key: &str, value: V) {
-
         self.maybe_rehash();
 
+        let existing_idx = self.find_key_index(key);
+        if existing_idx != 0 {
+            let idx0 = existing_idx - 1;
+            self.values[idx0] = value;
+            if DESTRUCTIVE && self.is_deleted(idx0) {
+                self.count += 1;
+                self.clear_deleted(idx0);
+            }
+            return;
+        }
+
+        self.keys.add(key);
+        self.values.push(value);
+        let mut current_key_index = self.keys.len(); 
         let key_hash_u64 = self.hasher.hash(key);
-        let key_hash_truncated =
+        let mut current_key_hash =
             (key_hash_u64 as usize) & ((1 << (std::mem::size_of::<KC>() * 8)) - 1);
 
         let modulo_mask = self.capacity - 1;
-        let mut slot = key_hash_truncated & modulo_mask;
+        let mut slot = current_key_hash & modulo_mask;
+        let mut current_dib = 0;
 
         loop {
-            let key_index = self.load_slot(slot);
-            if key_index == 0 {
-                // insert fresh
-                self.keys.add(key);
+            let slot_key_index = self.load_slot(slot);
+            if slot_key_index == 0 {
+                self.store_slot(slot, current_key_index);
                 if CACHING_HASHES {
-                    self.key_hashes.as_mut().unwrap()[slot] = KC::try_from(key_hash_truncated)
+                    self.key_hashes.as_mut().unwrap()[slot] = KC::try_from(current_key_hash)
                         .ok()
-                        .expect("8 usize -> KeyEndType conversion failed");
+                        .expect("Conversion failed");
                 }
-                self.values.push(value);
-                self.store_slot(slot, self.keys.len()); // 1-based
                 self.count += 1;
                 return;
             }
 
-            // collision path
             if CACHING_HASHES {
-                let other_hash: usize = self.key_hashes.as_ref().unwrap()[slot]
+                let slot_hash_val: usize = self.key_hashes.as_ref().unwrap()[slot]
                     .try_into()
                     .ok()
-                    .expect("KC -> usize conversion failed");
-                if other_hash == key_hash_truncated {
-                    let other_key = self.keys.get(key_index - 1).unwrap();
-                    if other_key == key {
-                        // replace value
-                        let idx0 = key_index - 1;
-                        self.values[idx0] = value;
-                        if DESTRUCTIVE && self.is_deleted(idx0) {
-                            self.count += 1;
-                            self.clear_deleted(idx0);
-                        }
-                        return;
-                    }
-                }
-            } else {
-                let other_key = self.keys.get(key_index - 1).unwrap();
-                if other_key == key {
-                    let idx0 = key_index - 1;
-                    self.values[idx0] = value;
-                    if DESTRUCTIVE && self.is_deleted(idx0) {
-                        self.count += 1;
-                        self.clear_deleted(idx0);
-                    }
-                    return;
+                    .expect("Conversion failed");
+                let slot_original = slot_hash_val & modulo_mask;
+                let slot_dib = (slot + self.capacity - slot_original) & modulo_mask;
+
+                if current_dib > slot_dib {
+                    self.store_slot(slot, current_key_index);
+                    current_key_index = slot_key_index;
+                    
+                    self.key_hashes.as_mut().unwrap()[slot] = KC::try_from(current_key_hash)
+                        .ok()
+                        .expect("Conversion failed");
+                    current_key_hash = slot_hash_val;
+                    
+                    current_dib = slot_dib;
                 }
             }
 
             slot = (slot + 1) & modulo_mask;
+            current_dib += 1;
         }
     }
 
