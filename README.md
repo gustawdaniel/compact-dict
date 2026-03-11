@@ -1,5 +1,7 @@
 # compact-dict
 
+[![Crates.io](https://img.shields.io/crates/v/compact-dict.svg)](https://crates.io/crates/compact-dict)
+
 `compact-dict` is a highly customizable, open-addressing dictionary in Rust. It features linear probing and continuous memory layout for string keys, heavily inspired by Mojo's Dict.
 
 ## Why `compact-dict`?
