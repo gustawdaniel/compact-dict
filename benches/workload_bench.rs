@@ -11,7 +11,7 @@ use hashbrown::HashMap as BrownHashMap;
 use fxhash::FxHashMap;
 use indexmap::IndexMap;
 
-const SIZES: &[usize] = &[1_000, 10_000, 50_000, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000];
+const SIZES: &[usize] = &[1_000, 10_000, 50_000, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000, 20_000_000, 50_000_000];
 
 fn main() {
     let max_n = *SIZES.iter().max().unwrap();
@@ -52,7 +52,7 @@ fn main() {
         }
 
         // --- fxhash ---
-        {
+        if n <= 1_000_000 {
             let mut dic = FxHashMap::default();
             dic.reserve(n); 
             let start = Instant::now();

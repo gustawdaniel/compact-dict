@@ -136,16 +136,37 @@ To demonstrate the exact boundaries of Cache Locality vs SIMD pointer-chasing, w
 
 | Dataset Size | Keys/Values Memory | compact-dict (AHash) | hashbrown | IndexMap | Winner |
 | --- | --- | --- | --- | --- | --- |
-| **1k** | ~25 KB | 0.00004 s | 0.00003 s | 0.00003 s | **Tie** |
-| **10k** | ~250 KB | 0.00042 s | 0.00040 s | 0.00040 s | **Tie** |
-| **50k** | ~1.25 MB | 0.00276 s | 0.00228 s | 0.00304 s | **hashbrown (~18% faster)** |
-| **100k** | ~2.5 MB | 0.00454 s | 0.00480 s | 0.00588 s | **compact-dict (~5% faster)** |
-| **500k** | ~12.5 MB | 0.03380 s | 0.11273 s | 0.06127 s | **compact-dict (3.3x faster!)** 🚀 |
-| **1M** | ~25 MB | 0.10286 s | 0.18673 s | 0.14350 s | **compact-dict (1.8x faster!)** 🚀 |
-| **5M** | ~120 MB | 0.91444 s | 1.12205 s | 1.36139 s | **compact-dict (~22% faster)** 🚀 |
-| **10M** | ~250 MB | 2.05771 s | 2.18067 s | 3.30514 s | **compact-dict (~6% faster)** 🚀 |
+| **1k** | ~25 KB | 0.00006 s | 0.00005 s | 0.00005 s | **Tie** |
+| **10k** | ~250 KB | 0.00056 s | 0.00051 s | 0.00052 s | **Tie** |
+| **50k** | ~1.25 MB | 0.00332 s | 0.00294 s | 0.00387 s | **hashbrown (~12% faster)** |
+| **100k** | ~2.5 MB | 0.00670 s | 0.00744 s | 0.00716 s | **compact-dict (~10% faster)** |
+| **500k** | ~12.5 MB | 0.06847 s | 0.10188 s | 0.10495 s | **compact-dict (~1.5x faster)** 🚀 |
+| **1M** | ~25 MB | 0.13251 s | 0.24084 s | 0.24170 s | **compact-dict (~1.8x faster)** 🚀 |
+| **5M** | ~120 MB | 1.03868 s | 0.88833 s | 1.45756 s | **hashbrown (~16% faster)** |
+| **10M** | ~250 MB | 2.23751 s | 1.92807 s | 3.17355 s | **hashbrown (~16% faster)** |
+| **20M** | ~500 MB | 5.90096 s | 6.52020 s | 8.73994 s | **compact-dict (~10% faster)** 🚀 |
+| **50M** | ~1.25 GB | 13.56649 s | 19.67217 s | 27.40097 s | **compact-dict (~45% faster)** 🚀 |
 
-**Conclusion**: Continuous memory architecture behaves exactly as expected: when the entire working set comfortably fits in the CPU Cache (L2/L3), pointer chasing is the primary bottleneck and our contiguous array layout crushes the competition (up to 3x faster at the 500k boundary). Interestingly, `compact-dict` significantly pulls ahead of `IndexMap` across the board at scale, proving that simply combining a continuous array with a hash table isn't enough - you need brutally flat data and avoiding metadata bloat. At extreme sizes (>10M / 250MB), memory bandwidth saturates and native `hashbrown` begins catching up as cache locality benefits flatten out.
+**Conclusion**: The scaling behavior reveals an incredibly fascinating bimodal performance curve.
+1. **L1/L2 Cache Zone (< 2 MB):** `hashbrown` competes fiercely through raw SIMD optimizations.
+2. **L3 Cache Bound (2MB - 50MB):** `compact-dict` utterly destroys pointing-chasing architectures, being nearly 2x faster due to perfect L3 prefetching.
+3. **DRAM Latency Zone (50MB - 300MB):** Once the working dataset firmly spills into RAM (e.g. 10M), the continuous memory structure suffers from linear DRAM lookups, allowing `hashbrown`'s highly localized SIMD metadata scans to gracefully overtake it.
+4. **Memory Bandwidth Saturation (> 500MB):** At ultra-large scales (50 million elements), the massive pointer graph and memory bloat of traditional maps causes severe cache thrashing array-wide. `compact-dict` **re-takes the lead by a massive 45% margin**, simply because linear array iteration maximizes extreme DRAM memory bandwidth throughput, beating out random pointer lookups.
+
+### Diverse Benchmark Scenarios (1M Elements)
+
+To explore the extreme edges of linear probing, we benchmarked specific scenarios using `diverse_bench`:
+
+| Scenario | compact-dict (AHash) | hashbrown | Winner |
+| --- | --- | --- | --- |
+| **Read-Heavy Workload (90% Reads)** | 0.324 s | 0.629 s | **compact-dict (~1.9x faster)** 🚀 |
+| **High Load Factor (~85%)** | 0.073 s | 0.198 s | **compact-dict (~2.7x faster)** 🚀 |
+| **Unsuccessful Lookups (100% Misses)**| 0.021 s | 0.011 s | **hashbrown (~1.9x faster)** |
+
+**Takeaway:**
+* `compact-dict` dominates read-heavy sequential workloads perfectly. 
+* While high load factors theoretically degrade linear probing, the L3 Cache locality still powers through linear sequences faster than pointer-chasing at 1M scale.
+* **The absolute worst-case scenario for `compact-dict` is Unsuccessful Lookups.** Linear probing is forced to search sequentially until it hits an empty slot (which takes longer at higher load factors), making it roughly ~2x slower than `hashbrown`'s SIMD metadata scanning which immediately rejects misses.
 
 *Note: For the most accurate comparisons without allocation overhead skewing metrics, ensure to run tests natively with `LTO` enabled, as seen in the bench profile.*
 
